@@ -1,0 +1,2 @@
+"""SupportCopilot AI application package."""
+

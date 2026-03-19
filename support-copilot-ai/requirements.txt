@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pandas
+python-multipart
+pydantic
+PyPDF2
+
+# Testing
+pytest
+httpx

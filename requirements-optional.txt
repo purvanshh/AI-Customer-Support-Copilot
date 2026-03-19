@@ -1,0 +1,18 @@
+# Optional deps for a more “production-like” setup.
+#
+# The MVP defaults to EMBEDDING_BACKEND=mock and LLM_BACKEND=mock, so base deps
+# can run without these.
+
+# Vector search (FAISS)
+faiss-cpu
+
+# Embeddings
+sentence-transformers
+
+# LLM backends
+openai
+google-generativeai
+
+# Optional knowledge base parsing
+pypdf
+
