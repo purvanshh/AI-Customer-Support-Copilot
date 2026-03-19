@@ -5,6 +5,14 @@ python-multipart
 pydantic
 PyPDF2
 
+# Vector search + embeddings
+faiss-cpu
+sentence-transformers
+
+# LLM backends
+openai
+google-generativeai
+
 # Testing
 pytest
 httpx

@@ -48,3 +48,41 @@ class ApiError(BaseModel):
     error_type: Literal["invalid_file", "empty_file", "unsupported_format", "parsing_error"]
     extra: Optional[dict[str, Any]] = None
 
+
+class GenerateResponseRequest(BaseModel):
+    """
+    Request payload for `POST /generate-response`.
+    """
+
+    query: str = Field(..., min_length=1)
+    top_k: Optional[int] = Field(None, ge=1, le=50)
+    source_types: Optional[list[Literal["ticket", "doc"]]] = Field(
+        None,
+        description="Optional filtering for which ingested sources to retrieve from.",
+    )
+    force_rebuild_index: bool = Field(
+        False,
+        description="Force rebuilding the FAISS index from /data/processed/.",
+    )
+
+
+class SourceReference(BaseModel):
+    """
+    A retrieved context reference returned by `POST /generate-response`.
+    """
+
+    source_type: Literal["ticket", "doc"]
+    source_ref: str
+    score: float
+    snippet: str
+
+
+class GenerateResponseResponse(BaseModel):
+    """
+    Response payload for `POST /generate-response`.
+    """
+
+    response: str
+    sources: list[SourceReference]
+    confidence: float
+

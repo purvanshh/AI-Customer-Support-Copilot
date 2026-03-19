@@ -117,6 +117,20 @@ async def ingest_docs(file: UploadFile) -> UploadDocsResponse:
     processed_path = processed_dir / f"docs_processed_{stamp}.txt"
     processed_path.write_text("\n\n".join(all_chunks), encoding="utf-8")
 
+    # Persist structured metadata for RAG (chunk boundaries + doc identity).
+    # Keeps the existing API behavior intact (we still return the .txt path),
+    # while enabling metadata-rich vector index rebuilds.
+    chunks_meta = [
+        {
+            "source_filename": original,
+            "chunk_index": i,
+            "chunk_text": chunk,
+        }
+        for i, chunk in enumerate(all_chunks)
+    ]
+    meta_path = processed_dir / f"docs_processed_{stamp}.json"
+    meta_path.write_text(json.dumps(chunks_meta, indent=2), encoding="utf-8")
+
     return UploadDocsResponse(
         message="Documents ingested successfully",
         raw_file_path=first_raw_path or "",
