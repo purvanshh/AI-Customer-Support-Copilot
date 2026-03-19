@@ -25,6 +25,8 @@ class AnalyticsService:
         Returns:
             Dict matching the /analytics API contract.
         """
+        # Ensure schema exists for the current DATA_DIR.
+        init_db()
         with get_conn() as conn:
             rows = conn.execute(
                 """

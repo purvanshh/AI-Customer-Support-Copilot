@@ -164,7 +164,7 @@ def test_feedback_loop_overrides_response_and_updates_analytics(client: TestClie
     assert q2.status_code == 200, q2.text
     payload2 = q2.json()
     assert payload2["response"] == corrected
-    assert "snippet" in payload2["sources"][0] or True
+    assert isinstance(payload2["sources"], list) and len(payload2["sources"]) >= 1
 
     a = client.get("/analytics")
     assert a.status_code == 200, a.text

@@ -260,6 +260,10 @@ class RagService:
                 for s in retrieved
             ]
 
+            src_preview = [
+                {"source_type": s.source_type, "source_ref": s.source_ref, "score": round(s.score, 4)}
+                for s in retrieved[: min(5, len(retrieved))]
+            ]
             logger.info(
                 "RAG feedback override. query=%r category=%s match_similarity=%.3f rating=%s",
                 req.query,
@@ -267,6 +271,8 @@ class RagService:
                 feedback_match.similarity,
                 feedback_match.rating,
             )
+            logger.info("Retrieved chunks for override (top=%s): %s", top_k, src_preview)
+            logger.info("Using corrected response preview=%r", feedback_match.corrected_response[:200])
 
             return GenerateResponseResponse(
                 response=feedback_match.corrected_response,
@@ -290,6 +296,7 @@ class RagService:
             generation.confidence,
             src_preview,
         )
+        logger.info("Generated response preview=%r", generation.response[:200])
 
         sources = [
             SourceReference(

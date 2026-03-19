@@ -25,6 +25,7 @@ class FeedbackService:
     """
 
     def __init__(self) -> None:
+        # Table creation is idempotent; also protects against env/path changes in tests.
         init_db()
 
     def save_feedback(
@@ -47,6 +48,8 @@ class FeedbackService:
         Returns:
             Inserted feedback id.
         """
+        # Ensure schema exists for the current DATA_DIR.
+        init_db()
         with get_conn() as conn:
             cur = conn.execute(
                 """
@@ -88,6 +91,8 @@ class FeedbackService:
         Returns:
             FeedbackMatch if found, else None.
         """
+        # Ensure schema exists for the current DATA_DIR.
+        init_db()
         with get_conn() as conn:
             rows = conn.execute(
                 """
