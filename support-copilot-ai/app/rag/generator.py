@@ -98,7 +98,7 @@ class Generator:
         seen = set()
         deduped: list[SearchResult] = []
         for r in retrieved_results:
-            key = r.source_ref
+            key = f"{r.source_type}:{r.source_ref}"
             if key in seen:
                 continue
             seen.add(key)

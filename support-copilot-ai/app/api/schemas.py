@@ -85,4 +85,37 @@ class GenerateResponseResponse(BaseModel):
     response: str
     sources: list[SourceReference]
     confidence: float
+    category: str
+
+
+class FeedbackRequest(BaseModel):
+    """
+    Payload for `POST /feedback`.
+    """
+
+    query: str = Field(..., min_length=1)
+    ai_response: str = Field(..., min_length=1)
+    corrected_response: Optional[str] = Field(None, description="Corrected model response (if any).")
+    rating: int = Field(..., ge=1, le=5)
+
+
+class FeedbackResponse(BaseModel):
+    """
+    Response payload for `POST /feedback`.
+    """
+
+    id: int
+    status: str = "ok"
+
+
+class AnalyticsResponse(BaseModel):
+    """
+    Analytics payload for `GET /analytics`.
+    """
+
+    total_queries: int
+    avg_rating: float
+    resolution_rate: float
+    top_category: str
+    feedback_count: int
 

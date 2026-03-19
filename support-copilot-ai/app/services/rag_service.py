@@ -13,7 +13,9 @@ from app.core.config import data_dirs, get_settings
 from app.core.logger import get_logger
 from app.embeddings.vector_store import SourceType, VectorDocument, VectorStore
 from app.rag.pipeline import RagPipeline
+from app.services.classification_service import ClassificationService
 from app.services.llm_service import LLMService
+from app.services.feedback_service import FeedbackService
 
 
 logger = get_logger()
@@ -31,6 +33,8 @@ class RagService:
         self.vector_store = VectorStore()
         self.llm = LLMService()
         self.pipeline = RagPipeline(vector_store=self.vector_store, llm=self.llm)
+        self.classifier = ClassificationService()
+        self.feedback_service = FeedbackService()
 
     def _processed_inputs_manifest(self) -> dict[str, Any]:
         """
@@ -151,9 +155,10 @@ class RagService:
             path = Path(tf)
             docs = self._load_ticket_documents(path)
             for d in docs:
-                if d.source_ref in seen_refs:
+                key = f"{d.source_type}:{d.source_ref}"
+                if key in seen_refs:
                     continue
-                seen_refs.add(d.source_ref)
+                seen_refs.add(key)
                 documents.append(d)
 
         # Docs (metadata first)
@@ -162,18 +167,20 @@ class RagService:
                 path = Path(df)
                 docs = self._load_doc_documents_from_meta(path)
                 for d in docs:
-                    if d.source_ref in seen_refs:
+                    key = f"{d.source_type}:{d.source_ref}"
+                    if key in seen_refs:
                         continue
-                    seen_refs.add(d.source_ref)
+                    seen_refs.add(key)
                     documents.append(d)
         else:
             for df in manifest["docs_processed_txt_files"]:
                 path = Path(df)
                 docs = self._load_doc_documents_from_txt(path)
                 for d in docs:
-                    if d.source_ref in seen_refs:
+                    key = f"{d.source_type}:{d.source_ref}"
+                    if key in seen_refs:
                         continue
-                    seen_refs.add(d.source_ref)
+                    seen_refs.add(key)
                     documents.append(d)
 
         return documents, manifest
@@ -227,10 +234,48 @@ class RagService:
         """
         Generate an AI response using RAG.
         """
+        classification = self.classifier.classify(req.query)
+
+        # Ensure retrieval assets exist (vector index).
         self.ensure_index_built(force_rebuild_index=req.force_rebuild_index)
 
         top_k = int(req.top_k or self.settings.rag_top_k_default)
         source_types = req.source_types
+
+        # 1) Feedback adaptation: if we have a high-rated similar query, prioritize the corrected response.
+        feedback_match = self.feedback_service.find_best_match(req.query)
+        if feedback_match is not None:
+            retrieved = self.vector_store.similarity_search(
+                req.query,
+                top_k=top_k,
+                source_types=source_types,
+            )
+            sources = [
+                SourceReference(
+                    source_type=s.source_type,
+                    source_ref=s.source_ref,
+                    score=s.score,
+                    snippet=s.text[:400].strip(),
+                )
+                for s in retrieved
+            ]
+
+            logger.info(
+                "RAG feedback override. query=%r category=%s match_similarity=%.3f rating=%s",
+                req.query,
+                classification.label,
+                feedback_match.similarity,
+                feedback_match.rating,
+            )
+
+            return GenerateResponseResponse(
+                response=feedback_match.corrected_response,
+                sources=sources,
+                confidence=feedback_match.similarity,
+                category=classification.label,
+            )
+
+        # 2) Normal path: retrieve -> generate.
         generation = self.pipeline.run(query=req.query, top_k=top_k, source_types=source_types)
 
         # Debug visibility: show retrieved chunks + scores.
@@ -238,7 +283,13 @@ class RagService:
             {"source_type": s.source_type, "source_ref": s.source_ref, "score": round(s.score, 4)}
             for s in generation.sources[: min(5, len(generation.sources))]
         ]
-        logger.info("RAG generated response. query=%r confidence=%.3f top_sources=%s", req.query, generation.confidence, src_preview)
+        logger.info(
+            "RAG generated response. query=%r category=%s confidence=%.3f top_sources=%s",
+            req.query,
+            classification.label,
+            generation.confidence,
+            src_preview,
+        )
 
         sources = [
             SourceReference(
@@ -254,5 +305,6 @@ class RagService:
             response=generation.response,
             sources=sources,
             confidence=generation.confidence,
+            category=classification.label,
         )
 

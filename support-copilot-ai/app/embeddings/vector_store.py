@@ -224,7 +224,10 @@ class VectorStore:
             if filter_set is not None and doc.source_type not in filter_set:
                 continue
 
-            key_val = doc.source_ref if dedupe_key == "source_ref" else doc.source_type
+            # Deduplicate using both type and ref to prevent collisions across sources.
+            key_val = (
+                f"{doc.source_type}:{doc.source_ref}" if dedupe_key == "source_ref" else doc.source_type
+            )
             if key_val in seen:
                 continue
             seen.add(key_val)
