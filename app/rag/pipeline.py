@@ -14,7 +14,10 @@ from app.rag.generator import generate_response
 from app.models.classifier import classify_ticket
 from app.api.schemas import AnalyticsResponse, FeedbackResponse, FeedbackRequest, QueryRequest, QueryResponse, UploadDocsResponse, UploadTicketsResponse
 from app.utils.helpers import normalize_tags, now_iso
+from app.core.logger import configure_logger
 from fastapi import HTTPException
+
+logger = configure_logger()
 
 
 async def upload_tickets(tmp_path: str, original_filename: str | None = None) -> UploadTicketsResponse:
@@ -151,6 +154,17 @@ async def query_support(req: QueryRequest) -> QueryResponse:
         )
         generation_id = int(cur.lastrowid)
         conn.commit()
+
+    # Structured query log — query, classification, model, latency, confidence
+    logger.info(
+        "QUERY gen_id=%d | category=%s | model=%s | latency_ms=%d | confidence=%.2f | query=%s",
+        generation_id,
+        classification["label"],
+        gen["model_used"],
+        gen["response_time_ms"],
+        gen["confidence"],
+        req.customer_query[:120],
+    )
 
     # Convert sources for response
     resp_sources = []

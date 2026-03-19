@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Storage
     data_dir: str = "data"
+    log_dir: str = "logs"
     db_path: str | None = None
     faiss_index_path: str | None = None
     faiss_meta_path: str | None = None
@@ -35,12 +36,17 @@ class Settings(BaseSettings):
     # CORS
     cors_allow_origins: str = "*"  # comma-separated
 
+    # Server
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+
     class Config:
         env_file = ".env"
         extra = "ignore"
 
     def resolve_paths(self) -> None:
         os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
         processed_dir = os.path.join(self.data_dir, "processed")
         os.makedirs(processed_dir, exist_ok=True)
 

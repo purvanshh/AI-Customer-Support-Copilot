@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: supportcopilot-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && pip install -r requirements-optional.txt || true
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: EMBEDDING_BACKEND
+        value: mock
+      - key: LLM_BACKEND
+        value: mock
+      - key: DATA_DIR
+        value: data
+      - key: LOG_DIR
+        value: logs
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
