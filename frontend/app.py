@@ -79,15 +79,17 @@ with st.sidebar:
     try:
         analytics = requests.get(f"{API_URL}/analytics", timeout=5).json()
         col1, col2 = st.columns(2)
-        col1.metric("Total Queries", analytics.get("tickets_processed", 0))
-        col2.metric("Feedback Count", analytics.get("feedback_count", 0))
+        col1.metric("Total Queries", analytics.get("total_queries", 0))
+        col2.metric("Tickets Ingested", analytics.get("tickets_ingested", 0))
 
         col3, col4 = st.columns(2)
         col3.metric("Auto-Resolved", f"{analytics.get('percent_auto_resolved', 0):.1f}%")
         col4.metric("Accuracy", f"{analytics.get('accuracy', 0):.0%}")
 
+        col5, col6 = st.columns(2)
         avg_ms = analytics.get("avg_response_time_ms", 0)
-        st.metric("Avg Latency", f"{avg_ms:.0f} ms")
+        col5.metric("Avg Latency", f"{avg_ms:.0f} ms")
+        col6.metric("Feedback Count", analytics.get("feedback_count", 0))
     except Exception:
         st.info("Backend not reachable. Start the API server first.")
 

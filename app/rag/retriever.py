@@ -44,11 +44,19 @@ def retrieve_context(customer_query: str, top_k: int, allowed_tags: list[str] | 
 
     chunks: list[str] = []
     sources: list[dict[str, Any]] = []
+    seen_refs: set[str] = set()
     for r in results:
         source_type = str(r["source_type"])
         source_ref = str(r["source_ref"])
         score = float(r["score"])
         text = str(r["text"])
+
+        # Deduplicate: keep only the highest-scoring result per source_ref.
+        dedup_key = f"{source_type}:{source_ref}"
+        if dedup_key in seen_refs:
+            continue
+        seen_refs.add(dedup_key)
+
         chunks.append(f"[{source_type}:{source_ref} | score={score:.4f}]\n{text}")
         sources.append(
             {

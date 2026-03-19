@@ -33,7 +33,7 @@ T2,My subscription was charged twice,Sorry about that. Please verify your billin
     a = client.get("/analytics")
     assert a.status_code == 200, a.text
     ap = a.json()
-    assert ap["tickets_processed"] >= 1
+    assert ap["total_queries"] >= 1
     assert ap["accuracy"] >= 0.0
 
 

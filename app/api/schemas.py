@@ -50,7 +50,8 @@ class FeedbackResponse(BaseModel):
 
 
 class AnalyticsResponse(BaseModel):
-    tickets_processed: int
+    total_queries: int
+    tickets_ingested: int
     percent_auto_resolved: float
     avg_response_time_ms: float
     accuracy: float

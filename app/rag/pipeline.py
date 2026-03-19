@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,9 @@ async def query_support(req: QueryRequest) -> QueryResponse:
     settings = get_settings()
     top_k = int(req.top_k or settings.top_k_default)
 
+    # ── Full pipeline timer (retrieval + generation + DB write) ──
+    pipeline_t0 = time.time()
+
     classification = classify_ticket(req.customer_query)
     inferred_tag = classification["label"]
     tags_final = req.tags if req.tags else [inferred_tag]
@@ -130,6 +134,13 @@ async def query_support(req: QueryRequest) -> QueryResponse:
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    # Log retrieval results at DEBUG level for diagnostics
+    for s in sources[:top_k]:
+        logger.debug(
+            "  RETRIEVAL src=%s:%s score=%.4f",
+            s["source_type"], s["source_ref"], s.get("score", 0.0),
+        )
+
     gen = generate_response(
         customer_query=req.customer_query,
         context=context_text,
@@ -137,6 +148,9 @@ async def query_support(req: QueryRequest) -> QueryResponse:
         tags=tags_final,
         llm_backend_override=req.llm_override,
     )
+
+    # Calculate full pipeline latency (not just LLM generation)
+    pipeline_ms = int((time.time() - pipeline_t0) * 1000)
 
     with connect() as conn:
         cur = conn.execute(
@@ -149,20 +163,22 @@ async def query_support(req: QueryRequest) -> QueryResponse:
                 gen["suggestion_text"],
                 float(gen["confidence"]),
                 str(gen["model_used"]),
-                int(gen["response_time_ms"]),
+                pipeline_ms,  # Store full pipeline latency, not just LLM time
             ),
         )
         generation_id = int(cur.lastrowid)
         conn.commit()
 
     # Structured query log — query, classification, model, latency, confidence
+    source_refs = [f"{s['source_type']}:{s['source_ref']}({s.get('score', 0):.3f})" for s in sources[:3]]
     logger.info(
-        "QUERY gen_id=%d | category=%s | model=%s | latency_ms=%d | confidence=%.2f | query=%s",
+        "QUERY gen_id=%d | category=%s | model=%s | pipeline_ms=%d | confidence=%.2f | sources=%s | query=%s",
         generation_id,
         classification["label"],
         gen["model_used"],
-        gen["response_time_ms"],
+        pipeline_ms,
         gen["confidence"],
+        ",".join(source_refs),
         req.customer_query[:120],
     )
 
@@ -189,28 +205,31 @@ async def query_support(req: QueryRequest) -> QueryResponse:
 
 async def submit_feedback(req: FeedbackRequest) -> FeedbackResponse:
     action = req.user_action
-
     corrected_text = req.corrected_text if action == "corrected" else None
 
     with connect() as conn:
-        # Update generation status first.
-        new_status = action
+        # ── Validate generation_id exists ──
+        row = conn.execute(
+            "SELECT id, customer_query FROM generations WHERE id = ?",
+            (req.generation_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Generation {req.generation_id} not found",
+            )
+
+        original_query = row["customer_query"]
+
+        # Update generation status.
         conn.execute(
-            """
-            UPDATE generations
-            SET status = ?
-            WHERE id = ?
-            """,
-            (new_status, req.generation_id),
+            "UPDATE generations SET status = ? WHERE id = ?",
+            (action, req.generation_id),
         )
 
         if corrected_text:
             conn.execute(
-                """
-                UPDATE generations
-                SET suggestion_text = ?
-                WHERE id = ?
-                """,
+                "UPDATE generations SET suggestion_text = ? WHERE id = ?",
                 (corrected_text, req.generation_id),
             )
 
@@ -223,15 +242,43 @@ async def submit_feedback(req: FeedbackRequest) -> FeedbackResponse:
             """,
             (req.generation_id, action, corrected_text),
         )
-
         conn.commit()
+
+    logger.info(
+        "FEEDBACK gen_id=%d action=%s corrected=%s",
+        req.generation_id, action, bool(corrected_text),
+    )
+
+    # ── Feedback re-embedding: inject corrected responses into the vector store ──
+    # This is what makes the "feedback-driven learning" claim real:
+    #   corrected text → new vector_items row → index rebuild → future queries see it.
+    if action == "corrected" and corrected_text:
+        feedback_vector_text = (
+            f"[Feedback-Corrected Response]\n"
+            f"Original Query: {original_query}\n"
+            f"Corrected Response: {corrected_text}\n"
+        )
+        with connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO vector_items(source_type, source_ref, text, tags)
+                VALUES (?, ?, ?, ?)
+                """,
+                ("ticket", f"feedback-{req.generation_id}", feedback_vector_text, json.dumps([])),
+            )
+            conn.commit()
+
+        vs = VectorStore()
+        vs.rebuild_from_db()
+        logger.info("FEEDBACK_REINDEX gen_id=%d — corrected response re-embedded into vector store", req.generation_id)
 
     return FeedbackResponse(status="ok")
 
 
 async def get_analytics() -> AnalyticsResponse:
     with connect() as conn:
-        total = conn.execute("SELECT COUNT(*) AS c FROM generations;").fetchone()["c"]
+        total_queries = conn.execute("SELECT COUNT(*) AS c FROM generations;").fetchone()["c"]
+        total_tickets = conn.execute("SELECT COUNT(*) AS c FROM tickets;").fetchone()["c"]
         accepted = conn.execute("SELECT COUNT(*) AS c FROM generations WHERE status = 'accepted';").fetchone()["c"]
         avg_time = conn.execute("SELECT AVG(response_time_ms) AS a FROM generations;").fetchone()["a"]
         feedback_count = conn.execute("SELECT COUNT(*) AS c FROM feedback;").fetchone()["c"]
@@ -243,18 +290,18 @@ async def get_analytics() -> AnalyticsResponse:
             """
         ).fetchone()["c"]
 
-    total_f = int(total or 0)
+    total_q = int(total_queries or 0)
     feedback_count_i = int(feedback_count or 0)
     accepted_i = int(accepted or 0)
-    avg_time_i = float(avg_time) if avg_time is not None else 0.0
+    avg_time_f = float(avg_time) if avg_time is not None else 0.0
     accuracy = (correct_count / feedback_count_i) if feedback_count_i > 0 else 0.0
-    percent_auto_resolved = (accepted_i / total_f) * 100.0 if total_f > 0 else 0.0
+    percent_auto_resolved = (accepted_i / total_q) * 100.0 if total_q > 0 else 0.0
 
     return AnalyticsResponse(
-        tickets_processed=total_f,
+        total_queries=total_q,
+        tickets_ingested=int(total_tickets or 0),
         percent_auto_resolved=percent_auto_resolved,
-        avg_response_time_ms=avg_time_i,
+        avg_response_time_ms=avg_time_f,
         accuracy=float(accuracy),
         feedback_count=feedback_count_i,
     )
-

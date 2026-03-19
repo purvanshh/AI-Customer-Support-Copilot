@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.core.logger import configure_logger
 from app.api.schemas import (
@@ -41,7 +41,13 @@ async def upload_tickets_endpoint(
         tmp_path = tmp.name
 
     logger.info("Ingesting tickets file: %s", file.filename)
-    return await upload_tickets(tmp_path=tmp_path, original_filename=file.filename)
+    try:
+        return await upload_tickets(tmp_path=tmp_path, original_filename=file.filename)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Unexpected error during ticket upload")
+        raise HTTPException(status_code=500, detail=f"Internal error: {type(e).__name__}: {e}") from e
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -64,10 +70,15 @@ async def upload_docs_endpoint(docs: list[UploadFile] = File(...)) -> UploadDocs
             tmp.write(content)
             paths.append((tmp.name, d.filename or "document"))
 
-    return await upload_docs(doc_paths=paths)
+    try:
+        return await upload_docs(doc_paths=paths)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Unexpected error during doc upload")
+        raise HTTPException(status_code=500, detail=f"Internal error: {type(e).__name__}: {e}") from e
 
 
 @router.get("/analytics", response_model=AnalyticsResponse)
 async def analytics_endpoint() -> AnalyticsResponse:
     return await get_analytics()
-
