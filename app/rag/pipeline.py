@@ -264,7 +264,7 @@ async def submit_feedback(req: FeedbackRequest) -> FeedbackResponse:
                 INSERT INTO vector_items(source_type, source_ref, text, tags)
                 VALUES (?, ?, ?, ?)
                 """,
-                ("ticket", f"feedback-{req.generation_id}", feedback_vector_text, json.dumps([])),
+                ("feedback", f"feedback-{req.generation_id}", feedback_vector_text, json.dumps([])),
             )
             conn.commit()
 

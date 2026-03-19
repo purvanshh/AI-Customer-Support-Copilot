@@ -15,24 +15,46 @@ def _score_to_confidence(score: float) -> float:
 
 
 def _fallback_response(customer_query: str, context: str) -> str:
-    m = re.search(r"Historical Response:\s*(.+)", context, flags=re.IGNORECASE | re.DOTALL)
-    snippet = m.group(1).strip() if m else ""
-    snippet = snippet.split("\n")[0].strip() if snippet else ""
-    if not snippet:
-        # If we couldn't find a historical agent response (e.g., doc-only context),
-        # use the first meaningful context line as a grounding hint.
-        for line in context.splitlines():
-            if line.strip():
-                snippet = line.strip()
-                break
-        snippet = snippet[:300] if snippet else ""
-        if not snippet:
-            snippet = "Thanks for reaching out. Could you share a bit more detail about your setup so we can pinpoint the issue?"
+    """
+    Grounded fallback: extract the most useful information from the context
+    without depending on the LLM.
+    """
+    # ── 1. Prefer feedback-corrected responses ──
+    for m in re.finditer(r"Corrected Response:\s*(.+?)(?=\n\[|\Z)", context, flags=re.DOTALL):
+        snippet = m.group(1).strip().split("\n")[0].strip()
+        if snippet:
+            return (
+                f"Thanks for reaching out.\n\n"
+                f"{snippet}\n\n"
+                "Let us know if you need anything else."
+            )
+
+    # ── 2. Try historical ticket responses ──
+    for m in re.finditer(r"Historical Response:\s*(.+?)(?=\nTicket ID:|\n\[|\Z)", context, flags=re.DOTALL):
+        snippet = m.group(1).strip().split("\n")[0].strip()
+        if snippet:
+            return (
+                f"Thanks for reaching out.\n\n"
+                f"Based on similar past cases: {snippet}\n\n"
+                "If you need further assistance, please share your account details."
+            )
+
+    # ── 3. Try doc excerpts ──
+    for line in context.splitlines():
+        line = line.strip()
+        if line and not line.startswith("[") and len(line) > 30:
+            return (
+                f"Thanks for reaching out.\n\n"
+                f"From our knowledge base: {line[:300]}\n\n"
+                "Let us know if you need more details."
+            )
+
+    # ── 4. Absolute fallback ──
     return (
-        f"Thanks for reaching out.\n\n"
-        f"Here’s what has helped in similar cases: {snippet}\n\n"
-        "If you reply with any extra context (account email, steps tried, and any error messages), "
-        "we’ll help you get unblocked."
+        "Thanks for reaching out.\n\n"
+        "I don't have enough information in our knowledge base to answer this fully. "
+        "Could you share more details (account email, steps tried, and any error messages) "
+        "so we can assist you directly?"
     )
 
 
@@ -70,4 +92,3 @@ def generate_response(
         "backend": meta.get("backend", "unknown"),
         "response_time_ms": response_time_ms,
     }
-

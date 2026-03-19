@@ -25,7 +25,7 @@ class QueryRequest(BaseModel):
 
 
 class SourceReference(BaseModel):
-    source_type: Literal["ticket", "doc"]
+    source_type: Literal["ticket", "doc", "feedback"]
     source_ref: str
     tags: Optional[list[str]] = None
     score: float
